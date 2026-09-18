@@ -9,13 +9,42 @@ on:
 jobs:
   build:
     name: Autograding
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      # TODO build, test and deploy project
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends $(cat deps/ubuntu-24.04.txt)
+
+      - name: Check formatting
+        run: clang-format-20 --dry-run --Werror $(git ls-files '*.cpp' '*.hpp')
+
+      - name: Cache userver sources and ccache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/CPM
+            ~/.cache/ccache
+          key: build-${{ hashFiles('CMakeLists.txt', 'deps/ubuntu-24.04.txt') }}-${{ github.run_number }}
+          restore-keys: |
+            build-${{ hashFiles('CMakeLists.txt', 'deps/ubuntu-24.04.txt') }}-
+            build-
+
+      - name: Build (with clang-tidy)
+        run: |
+          ccache -M 2G
+          cmake --preset debug
+          cmake --build --preset debug
+          ccache -s
+
+      - name: Run unit tests
+        run: ctest --preset debug
+
+      # TODO deploy to Heroku
 
       - name: Run API Tests
         uses: matt-ball/newman-action@master
