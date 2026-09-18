@@ -41,6 +41,7 @@
     приватные поля `member_`, константы/enum-значения `kCamelCase`, макросы `UPPER_CASE`;
   - ASan + UBSan в пресете `debug` (`USERVER_SANITIZE="addr;ub"`, флаги приходят через интерфейс userver) — в CI тоже;
   - unit-тесты (`UTEST`).
+  - отключено в clang-tidy: `cppcoreguidelines-avoid-const-or-ref-data-members` (ссылки-члены для DI — норма, как в userver);
   - Не вводим (решили): pre-commit, .editorconfig, actionlint/hadolint/shellcheck, Conventional Commits, покрытие, IWYU.
 - lld подхватывается userver автоматически (`userver_setup_environment()` ищет `lld-<версия clang>`), ccache — тоже.
 - Первая сборка долгая (userver из исходников); CPM-кэш исходников — `~/.cache/CPM`, объектники — ccache.
@@ -94,7 +95,9 @@ person-service/
 3. [x] **GitHub Actions** (`ubuntu-24.04`): apt из `deps/` → проверка форматирования → кэш CPM+ccache → сборка с clang-tidy → ctest.
 4. [x] **HTTP-ручки на заглушках**: `api/person_handlers` (`handler-persons`: GET/POST, `handler-person`: GET/PATCH/DELETE),
    `api/person_json` (сериализация, валидация → 400). Заглушка: существует только `id = 1`. Проверено curl'ом.
-5. [ ] **Домен и сервис** (TDD): 4–5 тестов — create, get (+404), list, partial patch, delete (+404), валидация (400).
+5. [x] **Домен и сервис** (TDD): `PersonRepository` (интерфейс), `PersonService` (частичный PATCH через `ApplyPatch`),
+   7 unit-тестов на GMock-моке: create, get (+nullopt), list, partial patch, patch не найден, patch удалённого, delete.
+   Валидация формата — в `api`, домен получает корректные данные. Домен не зависит от userver.
 6. [ ] **Postgres-репозиторий**; ручки переключаются с заглушек на сервис; таблица через `CREATE TABLE IF NOT EXISTS` при старте.
    Проверка: локально newman с `[inst][local]` окружением.
 7. [ ] **Dockerfile**: multi-stage (builder: ubuntu:24.04 + `deps/` → runtime: ubuntu:24.04 + runtime-библиотеки), слушает `$PORT`.

@@ -16,6 +16,7 @@
 
 #include "api/person_json.hpp"
 #include "domain/person.hpp"
+#include "domain/person_service.hpp"
 
 namespace person_service::api {
 
@@ -43,21 +44,6 @@ std::optional<Person> StubFind(std::int32_t id) {
         return std::nullopt;
     }
     return StubPerson();
-}
-
-void ApplyPatch(Person& person, const PersonRequest& patch) {
-    if (patch.name) {
-        person.name = *patch.name;
-    }
-    if (patch.age) {
-        person.age = patch.age;
-    }
-    if (patch.address) {
-        person.address = patch.address;
-    }
-    if (patch.work) {
-        person.work = patch.work;
-    }
 }
 
 std::string Respond(const HttpRequest& request, HttpStatus status, std::string body) {
