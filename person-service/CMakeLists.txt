@@ -6,7 +6,8 @@ rsoi_target_defaults(person_domain)
 
 add_executable(person-service
     src/main.cpp
-    src/api/person_controller.cpp
+    src/api/person_handlers.cpp
+    src/api/person_json.cpp
     src/storage/pg_person_repository.cpp)
 target_link_libraries(person-service PRIVATE person_domain userver::postgresql)
 rsoi_target_defaults(person-service)

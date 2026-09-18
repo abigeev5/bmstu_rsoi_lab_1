@@ -29,3 +29,13 @@ components_manager:
             task_processor: main-task-processor
             throttling_enabled: false
             url_trailing_slash: strict-match
+
+        handler-persons:
+            path: /api/v1/persons
+            method: GET,POST
+            task_processor: main-task-processor
+
+        handler-person:
+            path: /api/v1/persons/{id}
+            method: GET,PATCH,DELETE
+            task_processor: main-task-processor

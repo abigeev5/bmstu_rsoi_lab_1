@@ -67,7 +67,7 @@ person-service/
   src/
     main.cpp
     domain/                  # сущности и логика, без HTTP и SQL → статическая библиотека person_domain
-    api/                     # HTTP-контроллер, JSON
+    api/                     # HTTP-ручки userver (person_handlers), JSON и валидация (person_json)
     storage/                 # Postgres-репозиторий, schema.sql
   configs/static_config.yaml # конфиг компонентов userver
   tests/
@@ -83,21 +83,25 @@ person-service/
 - `DELETE` → **204**.
 - 404 → `{ "message": ... }`; 400 → `{ "message": ..., "errors": { поле: текст } }`.
 - Локальный Postgres: `docker compose up -d` → БД `persons`, пользователь `program:test`.
+- Решения по API: в PATCH все поля опциональны (частичное обновление, `name` не обязателен, но не пустой);
+  `null` = поле не передано; нечисловой `{id}` → 400; неизвестные поля игнорируются.
 - Heroku отдаёт `DATABASE_URL` как `postgres://...` — libpq понимает URI; добавить `sslmode=require`.
 
 ## План ЛР1
 1. [x] **Окружение WSL2**: clang-20, lld, clang-tidy, clang-format + пакеты из `deps/ubuntu-24.04.txt`.
 2. [x] **Скелет сборки**: presets, userver через CPM, clang-format/tidy, заглушки, `UTEST`-smoke, `/manage/health` (ping-хендлер userver) с логом.
    Проверка: `cmake --preset debug && cmake --build --preset debug && ctest --preset debug`; сервис стартует, пишет лог, `curl /manage/health` → 200.
-3. [ ] **GitHub Actions** (`ubuntu-24.04`): apt из `deps/` → проверка форматирования → кэш CPM+ccache → сборка с clang-tidy → ctest.
-4. [ ] **Домен и сервис** (TDD): 4–5 тестов — create, get (+404), list, partial patch, delete (+404), валидация (400).
-5. [ ] **Postgres-репозиторий и контроллер**; таблица через `CREATE TABLE IF NOT EXISTS` при старте.
+3. [x] **GitHub Actions** (`ubuntu-24.04`): apt из `deps/` → проверка форматирования → кэш CPM+ccache → сборка с clang-tidy → ctest.
+4. [x] **HTTP-ручки на заглушках**: `api/person_handlers` (`handler-persons`: GET/POST, `handler-person`: GET/PATCH/DELETE),
+   `api/person_json` (сериализация, валидация → 400). Заглушка: существует только `id = 1`. Проверено curl'ом.
+5. [ ] **Домен и сервис** (TDD): 4–5 тестов — create, get (+404), list, partial patch, delete (+404), валидация (400).
+6. [ ] **Postgres-репозиторий**; ручки переключаются с заглушек на сервис; таблица через `CREATE TABLE IF NOT EXISTS` при старте.
    Проверка: локально newman с `[inst][local]` окружением.
-6. [ ] **Dockerfile**: multi-stage (builder: ubuntu:24.04 + `deps/` → runtime: ubuntu:24.04 + runtime-библиотеки), слушает `$PORT`.
+7. [ ] **Dockerfile**: multi-stage (builder: ubuntu:24.04 + `deps/` → runtime: ubuntu:24.04 + runtime-библиотеки), слушает `$PORT`.
    Проверка: `docker build` + `docker run` + newman.
-7. [ ] **Деплой на Heroku из Actions без CLI**: `docker login registry.heroku.com` (API key) → `docker push registry.heroku.com/<app>/web`
+8. [ ] **Деплой на Heroku из Actions без CLI**: `docker login registry.heroku.com` (API key) → `docker push registry.heroku.com/<app>/web`
    → релиз через Platform API (`PATCH /apps/<app>/formation`, curl). Секреты: `HEROKU_API_KEY`, `HEROKU_APP_NAME`.
-8. [ ] Прописать `baseUrl` в `postman/[inst][heroku] Lab1.postman_environment.json`, PR `feat/initial` → `master`.
+9. [ ] Прописать `baseUrl` в `postman/[inst][heroku] Lab1.postman_environment.json`, PR `feat/initial` → `master`.
 
 ## Открытые вопросы
 - Heroku: бесплатного плана нет → нужен аккаунт с Eco/Basic dyno и Essential Postgres.
