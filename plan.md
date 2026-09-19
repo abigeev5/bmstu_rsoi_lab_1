@@ -4,7 +4,7 @@
 
 | ЛР | Что проверяют на самом деле | Нагрузка на код |
 |----|-----------------------------|-----------------|
-| 1 | CI/CD, Docker, деплой на Heroku | один CRUD-сервис, 5 эндпоинтов |
+| 1 | CI/CD, Docker, деплой на Render (вместо Heroku, по указанию преподавателя) | один CRUD-сервис, 5 эндпоинтов |
 | 2 | микросервисы, docker-compose, Gateway | 3 CRUD-сервиса + оркестрация в Gateway, `/manage/health` |
 | 3 | отказоустойчивость | Circuit Breaker, fallback, откат/компенсация, очередь повторов — самая «кодовая» ЛР |
 | 4 | k8s, helm, ingress, registry | кода почти нет, конфиг через env |
@@ -54,7 +54,7 @@
 - **API Gateway / API Composition** (ЛР2).
 - **Circuit Breaker**, **Retry Queue**, компенсирующие действия (ЛР3) — клиенты сервисов за интерфейсом, CB как декоратор.
 - **Middleware/Filter** для JWT (ЛР5).
-- **Конфиг через env** (12-factor): `PORT`, `DATABASE_URL` — нужно для Heroku (ЛР1) и k8s (ЛР4).
+- **Конфиг через env** (12-factor): `PORT`, `DATABASE_URL` — нужно для Render (ЛР1) и k8s (ЛР4).
 - Корутины userver stackful → интерфейсы домена — обычные синхронные сигнатуры (`std::optional<Person> Find(int id)`), без зависимости от фреймворка.
 
 ### Структура
@@ -66,12 +66,14 @@ deps/ubuntu-24.04.txt               # apt-зависимости: одни и т
 common/                      # появится в ЛР2: health, config, http-клиенты, circuit breaker, jwt filter
 person-service/
   src/
-    main.cpp
+    main.cpp                 # список компонентов userver
+    person_service_component.*  # связывает Postgres → PgPersonRepository → PersonService
     domain/                  # сущности и логика, без HTTP и SQL → статическая библиотека person_domain
     api/                     # HTTP-ручки userver (person_handlers), JSON и валидация (person_json)
-    storage/                 # Postgres-репозиторий, schema.sql
+    storage/                 # PgPersonRepository, queries/*.sql (кодогенерация userver)
   configs/static_config.yaml # конфиг компонентов userver
   tests/
+Dockerfile, .dockerignore           # runtime-образ с бинарником из CI
 ```
 **Не называть папки** `include/`, `lib/`, `bin/`, `build/`, `scripts/` — их игнорирует `.gitignore` шаблона.
 
@@ -86,7 +88,7 @@ person-service/
 - Локальный Postgres: `docker compose up -d` → БД `persons`, пользователь `program:test`.
 - Решения по API: в PATCH все поля опциональны (частичное обновление, `name` не обязателен, но не пустой);
   `null` = поле не передано; нечисловой `{id}` → 400; неизвестные поля игнорируются.
-- Heroku отдаёт `DATABASE_URL` как `postgres://...` — libpq понимает URI; добавить `sslmode=require`.
+- Render: `DATABASE_URL` = Internal Database URL (внутри сети Render без SSL; для внешнего URL — env `PGSSLMODE=require`).
 
 ## План ЛР1
 1. [x] **Окружение WSL2**: clang-20, lld, clang-tidy, clang-format + пакеты из `deps/ubuntu-24.04.txt`.
@@ -98,17 +100,29 @@ person-service/
 5. [x] **Домен и сервис** (TDD): `PersonRepository` (интерфейс), `PersonService` (частичный PATCH через `ApplyPatch`),
    7 unit-тестов на GMock-моке: create, get (+nullopt), list, partial patch, patch не найден, patch удалённого, delete.
    Валидация формата — в `api`, домен получает корректные данные. Домен не зависит от userver.
-6. [ ] **Postgres-репозиторий**; ручки переключаются с заглушек на сервис; таблица через `CREATE TABLE IF NOT EXISTS` при старте.
-   Проверка: локально newman с `[inst][local]` окружением.
-7. [ ] **Dockerfile**: multi-stage (builder: ubuntu:24.04 + `deps/` → runtime: ubuntu:24.04 + runtime-библиотеки), слушает `$PORT`.
-   Проверка: `docker build` + `docker run` + newman.
-8. [ ] **Деплой на Heroku из Actions без CLI**: `docker login registry.heroku.com` (API key) → `docker push registry.heroku.com/<app>/web`
-   → релиз через Platform API (`PATCH /apps/<app>/formation`, curl). Секреты: `HEROKU_API_KEY`, `HEROKU_APP_NAME`.
-9. [ ] Прописать `baseUrl` в `postman/[inst][heroku] Lab1.postman_environment.json`, PR `feat/initial` → `master`.
+6. [x] **Postgres-репозиторий**: SQL в `storage/queries/*.sql` → `userver_add_sql_library` → `person_service::sql::k*`;
+   `PgPersonRepository` (маппинг строк в `Person` через `kRowTag`), `PersonServiceComponent` (создаёт таблицу при старте,
+   отдаёт `PersonService` ручкам). Ручки переведены с заглушек на сервис. Локально на живой БД **не проверено**
+   (Docker Hub недоступен из Docker Desktop) — проверяется в CI.
+7. [ ] **Интеграционный прогон в CI**: service-контейнер `postgres:13` → release-бинарник → newman с `[inst][local]` окружением.
+8. [ ] **Dockerfile**: только runtime (ubuntu:24.04 + runtime-библиотеки), копирует release-бинарник, собранный в CI
+   (сборка userver внутри `docker build` без кэша заняла бы ~20+ минут на каждый прогон). Слушает `$PORT`.
+9. [ ] **Деплой на Render из Actions**: `docker push ghcr.io/<repo>:<sha>` → Render API `POST /v1/services/{id}/deploys`
+   с `imageUrl` → опрос статуса до `live` → ожидание `/manage/health` (бесплатный инстанс просыпается до минуты) → newman.
+   Секреты: `RENDER_API_KEY`, `RENDER_SERVICE_ID`. Deploy Hook не используем (по сути webhook).
+10. [ ] Прописать `baseUrl` (URL Render) в `postman/[inst][heroku] Lab1.postman_environment.json` (имя файла не менять —
+   оно в `autograding.json`), PR `feat/initial` → `master`.
+
+## Настройка Render (вручную)
+1. Postgres (Free) — взять Internal Database URL. Бесплатная БД удаляется через ~30 дней — создавать ближе к сдаче.
+2. Web Service → Existing Image `ghcr.io/abigeev5/bmstu_rsoi_lab_1:latest` (после первого прогона CI), Free,
+   env `DATABASE_URL`, Health Check Path `/manage/health`, Auto-Deploy off.
+3. Пакет в GHCR сделать публичным (или Registry Credential в Render).
+4. API key → секреты GitHub `RENDER_API_KEY`, `RENDER_SERVICE_ID` (`srv-...`).
 
 ## Открытые вопросы
-- Heroku: бесплатного плана нет → нужен аккаунт с Eco/Basic dyno и Essential Postgres.
-- До деплоя шаг newman в CI будет падать — это ожидаемо.
+- Бесплатный инстанс Render засыпает после 15 мин простоя → в CI ожидание health перед newman.
+- Действует ли запрет webhooks для Render — уточнить у преподавателя (используем API, так что не критично).
 
 ## Локальная работа
 ```bash

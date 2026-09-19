@@ -17,6 +17,7 @@
 #include "api/person_json.hpp"
 #include "domain/person.hpp"
 #include "domain/person_service.hpp"
+#include "person_service_component.hpp"
 
 namespace person_service::api {
 
@@ -26,24 +27,15 @@ using userver::server::http::HttpMethod;
 using userver::server::http::HttpRequest;
 using userver::server::http::HttpStatus;
 
-// TODO(lab1): replace the stub with PersonService backed by Postgres.
-constexpr std::int32_t kStubPersonId = 1;
-
-Person StubPerson() {
+// POST body is validated with NameRule::kRequired, so name is present.
+Person ToNewPerson(const PersonRequest& request) {
     return Person{
-        .id = kStubPersonId,
-        .name = "Stub",
-        .age = 30,
-        .address = "Stub street",
-        .work = "Stub inc",
+        .id = 0,
+        .name = request.name.value_or(""),
+        .age = request.age,
+        .address = request.address,
+        .work = request.work,
     };
-}
-
-std::optional<Person> StubFind(std::int32_t id) {
-    if (id != kStubPersonId) {
-        return std::nullopt;
-    }
-    return StubPerson();
 }
 
 std::string Respond(const HttpRequest& request, HttpStatus status, std::string body) {
@@ -78,11 +70,16 @@ std::optional<std::int32_t> ParseId(const std::string& raw) {
 
 } // namespace
 
+PersonsHandler::PersonsHandler(const userver::components::ComponentConfig& config,
+                               const userver::components::ComponentContext& context)
+    : HttpHandlerBase(config, context),
+      service_(context.FindComponent<PersonServiceComponent>().GetService()) {}
+
 std::string
 PersonsHandler::HandleRequest(HttpRequest& request,
                               userver::server::request::RequestContext& /*context*/) const {
     if (request.GetMethod() == HttpMethod::kGet) {
-        return RespondJson(request, HttpStatus::kOk, std::vector<Person>{StubPerson()});
+        return RespondJson(request, HttpStatus::kOk, service_.GetAll());
     }
 
     // POST
@@ -90,11 +87,17 @@ PersonsHandler::HandleRequest(HttpRequest& request,
     if (!person_request) {
         return RespondValidationError(request, person_request.error());
     }
+    const auto id = service_.Create(ToNewPerson(*person_request));
     request.SetResponseStatus(HttpStatus::kCreated);
     request.GetHttpResponse().SetHeader(userver::http::headers::kLocation,
-                                        "/api/v1/persons/" + std::to_string(kStubPersonId));
+                                        "/api/v1/persons/" + std::to_string(id));
     return {};
 }
+
+PersonHandler::PersonHandler(const userver::components::ComponentConfig& config,
+                             const userver::components::ComponentContext& context)
+    : HttpHandlerBase(config, context),
+      service_(context.FindComponent<PersonServiceComponent>().GetService()) {}
 
 std::string
 PersonHandler::HandleRequest(HttpRequest& request,
@@ -104,23 +107,29 @@ PersonHandler::HandleRequest(HttpRequest& request,
         return RespondValidationError(request, {{"id", "must be a 32-bit integer"}});
     }
 
-    auto person = StubFind(*id);
-    if (!person) {
-        return RespondNotFound(request, *id);
-    }
-
     switch (request.GetMethod()) {
-    case HttpMethod::kGet:
+    case HttpMethod::kGet: {
+        const auto person = service_.Get(*id);
+        if (!person) {
+            return RespondNotFound(request, *id);
+        }
         return RespondJson(request, HttpStatus::kOk, *person);
+    }
     case HttpMethod::kPatch: {
         const auto patch = ParsePersonRequest(request.RequestBody(), NameRule::kOptional);
         if (!patch) {
             return RespondValidationError(request, patch.error());
         }
-        ApplyPatch(*person, *patch);
+        const auto person = service_.Patch(*id, *patch);
+        if (!person) {
+            return RespondNotFound(request, *id);
+        }
         return RespondJson(request, HttpStatus::kOk, *person);
     }
     default: // DELETE; other methods are rejected by the handler config
+        if (!service_.Delete(*id)) {
+            return RespondNotFound(request, *id);
+        }
         request.SetResponseStatus(HttpStatus::kNoContent);
         return {};
     }
