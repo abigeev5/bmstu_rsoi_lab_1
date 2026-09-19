@@ -4,6 +4,8 @@ project(rsoi_labs LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+# No C++20 modules here; scanning every source with clang-scan-deps only slows the build down.
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
 # userver is built from source as a subproject; SYSTEM hides its headers from our warnings and clang-tidy.
 include(cmake/get_cpm.cmake)

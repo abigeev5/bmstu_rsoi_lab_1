@@ -58,6 +58,7 @@ unzip
 yasm
 zlib1g-dev
 clang-20
+libclang-rt-20-dev
 clang-tidy-20
 clang-format-20
 lld-20
