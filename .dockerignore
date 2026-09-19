@@ -1,0 +1,4 @@
+# The image only packages the binary built by CI (see Dockerfile); keep the context tiny.
+*
+!build/release/person-service/person-service
+!person-service/configs/

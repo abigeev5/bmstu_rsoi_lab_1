@@ -9,13 +9,131 @@ on:
 jobs:
   build:
     name: Autograding
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write   # push the image to ghcr.io
+    services:
+      # Database for the integration run of the service before deployment
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_USER: program
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: persons
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U program -d persons"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      # TODO build, test and deploy project
+      - name: Install dependencies
+        run: |
+          # The runner has the PGDG repo with a newer libpq; userver needs libpq to match
+          # postgresql-server-dev-16 from Ubuntu, as in WSL and in the Docker image.
+          printf 'Package: libpq5 libpq-dev\nPin: release o=Ubuntu\nPin-Priority: 1001\n' \
+            | sudo tee /etc/apt/preferences.d/libpq-ubuntu
+          sudo apt-get update
+          sudo apt-get install -y --allow-downgrades --no-install-recommends $(cat deps/ubuntu-24.04.txt)
+
+      - name: Check formatting
+        run: clang-format-20 --dry-run --Werror $(git ls-files '*.cpp' '*.hpp')
+
+      - name: Cache userver sources and ccache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/CPM
+            ~/.cache/ccache
+          key: build-${{ hashFiles('CMakeLists.txt', 'deps/ubuntu-24.04.txt') }}-${{ github.run_number }}
+          restore-keys: |
+            build-${{ hashFiles('CMakeLists.txt', 'deps/ubuntu-24.04.txt') }}-
+            build-
+
+      - name: Build (with clang-tidy)
+        run: |
+          ccache -M 5G
+          cmake --preset debug
+          cmake --build --preset debug
+          ccache -s
+
+      - name: Run unit tests
+        run: ctest --preset debug
+
+      - name: Build release binary
+        run: |
+          cmake --preset release
+          cmake --build --preset release --target person-service
+          ccache -s
+
+      - name: Start service against local Postgres
+        run: |
+          ./build/release/person-service/person-service \
+            --config person-service/configs/static_config.yaml > service.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:8080/manage/health && exit 0
+            sleep 1
+          done
+          echo "Service did not become healthy"; exit 1
+
+      - name: Run API Tests locally
+        uses: matt-ball/newman-action@master
+        with:
+          collection: postman/[inst] Lab1.postman_collection.json
+          environment: postman/[inst][local] Lab1.postman_environment.json
+          delayRequest: 100
+          reporters: '[ "cli" ]'
+
+      - name: Show service log
+        if: failure()
+        run: cat service.log 2>/dev/null || echo "The service was not started"
+
+      - name: Build and push Docker image
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker build -t "$image:${{ github.sha }}" -t "$image:latest" .
+          docker push --all-tags "$image"
+          echo "IMAGE_URL=$image:${{ github.sha }}" >> "$GITHUB_ENV"
+
+      - name: Deploy to Render
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          api="https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys"
+          auth="Authorization: Bearer $RENDER_API_KEY"
+          response=$(curl -sS --fail-with-body -X POST "$api" -H "$auth" -H "Content-Type: application/json" \
+            -d "{\"imageUrl\": \"$IMAGE_URL\"}")
+          deploy_id=$(echo "$response" | jq -r '.id')
+          echo "Deploy $deploy_id of $IMAGE_URL"
+          for i in $(seq 1 90); do
+            status=$(curl -sS --fail-with-body "$api/$deploy_id" -H "$auth" | jq -r '.status')
+            echo "status: $status"
+            case "$status" in
+              live) exit 0 ;;
+              *failed|canceled|deactivated) exit 1 ;;
+            esac
+            sleep 10
+          done
+          echo "Deploy did not finish in time"; exit 1
+
+      - name: Wait for Render service
+        run: |
+          base_url=$(jq -r '.values[] | select(.key == "baseUrl") | .value' \
+            "postman/[inst][heroku] Lab1.postman_environment.json")
+          # A free instance may take up to a minute to wake up
+          for i in $(seq 1 30); do
+            curl -sf -m 10 "$base_url/manage/health" && exit 0
+            sleep 10
+          done
+          echo "$base_url is not healthy"; exit 1
 
       - name: Run API Tests
         uses: matt-ball/newman-action@master

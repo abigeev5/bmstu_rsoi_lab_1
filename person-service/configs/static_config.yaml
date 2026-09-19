@@ -1,0 +1,53 @@
+components_manager:
+    task_processors:
+        main-task-processor:
+            worker_threads: 4
+        fs-task-processor:
+            worker_threads: 1
+
+    default_task_processor: main-task-processor
+
+    components:
+        server:
+            listener:
+                port: $port
+                port#env: PORT
+                port#fallback: 8080
+                task_processor: main-task-processor
+
+        logging:
+            fs-task-processor: fs-task-processor
+            loggers:
+                default:
+                    file_path: '@stderr'
+                    level: info
+                    overflow_behavior: discard
+
+        testsuite-support: {}
+
+        postgres-db:
+            dbconnection: $database-url
+            dbconnection#env: DATABASE_URL  # set by Heroku
+            dbconnection#fallback: postgresql://program:test@localhost:5432/persons  # docker compose
+            blocking_task_processor: fs-task-processor
+            dns_resolver: getaddrinfo
+            sync-start: true
+
+        person-service: {}
+
+        handler-ping:
+            path: /manage/health
+            method: GET
+            task_processor: main-task-processor
+            throttling_enabled: false
+            url_trailing_slash: strict-match
+
+        handler-persons:
+            path: /api/v1/persons
+            method: GET,POST
+            task_processor: main-task-processor
+
+        handler-person:
+            path: /api/v1/persons/{id}
+            method: GET,PATCH,DELETE
+            task_processor: main-task-processor
