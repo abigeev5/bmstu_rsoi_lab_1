@@ -27,7 +27,6 @@ using userver::server::http::HttpMethod;
 using userver::server::http::HttpRequest;
 using userver::server::http::HttpStatus;
 
-// POST body is validated with NameRule::kRequired, so name is present.
 Person ToNewPerson(const PersonRequest& request) {
     return Person{
         .id = 0,
@@ -126,7 +125,7 @@ PersonHandler::HandleRequest(HttpRequest& request,
         }
         return RespondJson(request, HttpStatus::kOk, *person);
     }
-    default: // DELETE; other methods are rejected by the handler config
+    default:
         if (!service_.Delete(*id)) {
             return RespondNotFound(request, *id);
         }

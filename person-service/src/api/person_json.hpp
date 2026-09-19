@@ -13,7 +13,6 @@
 
 namespace person_service {
 
-// Found by ADL: formats::json::ValueBuilder{person}.
 userver::formats::json::Value
 Serialize(const Person& person,
           userver::formats::serialize::To<userver::formats::json::Value> /*to*/);
@@ -22,7 +21,6 @@ Serialize(const Person& person,
 
 namespace person_service::api {
 
-// field -> error text, rendered as ValidationErrorResponse.errors
 using ValidationErrors = std::map<std::string, std::string>;
 
 enum class NameRule : std::uint8_t { kRequired, kOptional };

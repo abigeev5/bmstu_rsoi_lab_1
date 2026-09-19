@@ -22,7 +22,6 @@ void PgPersonRepository::EnsureSchema() {
     cluster_->Execute(kMaster, sql::kCreatePersonsTable);
 }
 
-// Reads go to the master too: a replica could lag behind a just-created person.
 std::vector<Person> PgPersonRepository::FindAll() const {
     return cluster_->Execute(kMaster, sql::kSelectPersons)
         .AsContainer<std::vector<Person>>(pg::kRowTag);

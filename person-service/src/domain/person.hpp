@@ -16,8 +16,6 @@ struct Person {
     bool operator==(const Person&) const = default;
 };
 
-// Body of POST (name is required) and PATCH (every field is optional, absent fields stay
-// unchanged).
 struct PersonRequest {
     std::optional<std::string> name;
     std::optional<std::int32_t> age;

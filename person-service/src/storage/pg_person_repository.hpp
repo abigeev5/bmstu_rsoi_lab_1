@@ -15,7 +15,6 @@ class PgPersonRepository final : public PersonRepository {
   public:
     explicit PgPersonRepository(userver::storages::postgres::ClusterPtr cluster);
 
-    // Creates the table if it does not exist yet (the service has no separate migrations).
     void EnsureSchema();
 
     std::vector<Person> FindAll() const override;

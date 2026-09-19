@@ -30,7 +30,6 @@ namespace person_service::api {
 
 namespace {
 
-// Absent and null fields are treated the same: "not provided".
 bool IsProvided(const userver::formats::json::Value& value) {
     return !value.IsMissing() && !value.IsNull();
 }

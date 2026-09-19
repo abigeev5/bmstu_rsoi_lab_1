@@ -38,7 +38,7 @@ std::optional<Person> PersonService::Patch(std::int32_t id, const PersonRequest&
     }
     ApplyPatch(*person, patch);
     if (!repository_.Update(*person)) {
-        return std::nullopt; // deleted between FindById and Update
+        return std::nullopt;
     }
     return person;
 }

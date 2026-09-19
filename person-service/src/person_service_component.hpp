@@ -11,7 +11,6 @@
 
 namespace person_service {
 
-// Wires the Postgres repository into PersonService and shares it with the handlers.
 class PersonServiceComponent final : public userver::components::ComponentBase {
   public:
     static constexpr std::string_view kName = "person-service";
