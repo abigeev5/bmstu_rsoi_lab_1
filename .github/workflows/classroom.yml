@@ -35,8 +35,12 @@ jobs:
 
       - name: Install dependencies
         run: |
+          # The runner has the PGDG repo with a newer libpq; userver needs libpq to match
+          # postgresql-server-dev-16 from Ubuntu, as in WSL and in the Docker image.
+          printf 'Package: libpq5 libpq-dev\nPin: release o=Ubuntu\nPin-Priority: 1001\n' \
+            | sudo tee /etc/apt/preferences.d/libpq-ubuntu
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends $(cat deps/ubuntu-24.04.txt)
+          sudo apt-get install -y --allow-downgrades --no-install-recommends $(cat deps/ubuntu-24.04.txt)
 
       - name: Check formatting
         run: clang-format-20 --dry-run --Werror $(git ls-files '*.cpp' '*.hpp')
@@ -88,7 +92,7 @@ jobs:
 
       - name: Show service log
         if: failure()
-        run: cat service.log
+        run: cat service.log 2>/dev/null || echo "The service was not started"
 
       - name: Build and push Docker image
         run: |
